@@ -4,6 +4,7 @@ import { env } from "./lib/env.js";
 import { connectToMongoDB } from "./lib/db.js";
 import bookingRouter from "./routes/booking.js";
 import uploadsRouter from "./routes/uploads.js";
+import servicesRouter from "./routes/services.js";
 
 const app = express();
 
@@ -16,7 +17,7 @@ app.get("/", (req, res) => {
 
 app.use("/api/bookings", bookingRouter);
 app.use("/api/uploads", uploadsRouter);
-
+app.use("/api/services", servicesRouter);
 await connectToMongoDB();
 
 app.listen(env.PORT, () => {
