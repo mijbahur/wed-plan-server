@@ -1,16 +1,24 @@
 import { Router } from "express";
 import { bookingCollection } from "../lib/db.js";
+import { HttpError } from "../lib/httpError.js";
 import { ObjectId } from "mongodb";
 
 const router = Router();
 
-router.get("/", async (req, res) => {
+// GET /api/bookings?userId=... -> the signed in customer's requests
+router.get("/", async (req, res, next) => {
     try {
-        const bookings = await bookingCollection.find().toArray();
-        res.json(bookings);
+        const { userId } = req.query;
+        const filter = userId ? { userId: String(userId) } : {};
+
+        const bookings = await bookingCollection
+            .find(filter)
+            .sort({ createdAt: -1 })
+            .toArray();
+
+        res.json({ success: true, data: bookings });
     } catch (error) {
-        console.error("Error fetching bookings:", error);
-        res.status(500).json({ error: "Internal Server Error" });
+        next(error);
     }
 });
 
@@ -62,6 +70,43 @@ router.post("/", async (req, res, next) => {
                 ...booking,
             },
         });
+    } catch (error) {
+        next(error);
+    }
+});
+
+router.patch("/:id/cancel", async (req, res, next) => {
+    try {
+        const { id } = req.params;
+
+        if (!ObjectId.isValid(id)) {
+            throw new HttpError(400, "Invalid booking ID.");
+        }
+
+        const booking = await bookingCollection.findOne({
+            _id: new ObjectId(id),
+        });
+
+        if (!booking) {
+            throw new HttpError(404, "Booking not found.");
+        }
+
+        if (booking.status !== "pending") {
+            throw new HttpError(409, "Only pending requests can be cancelled.");
+        }
+
+        await bookingCollection.updateOne(
+            { _id: booking._id },
+            {
+                $set: {
+                    status: "cancelled",
+                    cancelReason: req.body?.cancelReason ?? "",
+                    updatedAt: new Date(),
+                },
+            },
+        );
+
+        res.json({ success: true, message: "Booking request cancelled." });
     } catch (error) {
         next(error);
     }
