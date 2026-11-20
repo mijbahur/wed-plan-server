@@ -106,6 +106,36 @@ router.get("/", async (req, res) => {
     }
 });
 
+router.get("/:id", async (req, res) => {
+    try {
+        const serviceId = req.params.id;
+
+        if (!ObjectId.isValid(serviceId)) {
+            throw new HttpError(400, "Invalid service ID.");
+        }
+
+        const service = await servicesCollection.findOne({
+            _id: new ObjectId(serviceId),
+        });
+
+        if (!service) {
+            throw new HttpError(404, "Service not found.");
+        }
+
+        res.status(200).json({
+            success: true,
+            message: "Service fetched successfully.",
+            data: service,
+        });
+    } catch (error) {
+        console.error("Error fetching service:", error);
+        res.status(500).json({
+            success: false,
+            message: "Internal Server Error",
+        });
+    }
+});
+
 router.delete("/:id", async (req, res, next) => {
     try {
         const serviceId = req.params.id;
