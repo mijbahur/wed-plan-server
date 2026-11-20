@@ -65,7 +65,36 @@ router.post("/", async (req, res) => {
 
 router.get("/", async (req, res) => {
     try {
-        const cursor = servicesCollection.find();
+        const query = {};
+        if (req.query) {
+            if (req.query.category) {
+                query.category = req.query.category;
+            }
+            if (req.query.location) {
+                query.location = { $regex: req.query.location, $options: "i" };
+            }
+            if (req.query.status) {
+                query.status = req.query.status;
+            }
+            if (req.query.isActive) {
+                query.isActive = req.query.isActive === "true";
+            }
+            if (req.query.minPrice) {
+                query.price = { ...query.price, $gte: parseFloat(req.query.minPrice) };
+            }
+            if (req.query.maxPrice) {
+                query.price = { ...query.price, $lte: parseFloat(req.query.maxPrice) };
+            }
+
+            if(req.query.search){
+                query.$or = [
+                    { serviceName: { $regex: req.query.search, $options: "i" } },
+                    { location: { $regex: req.query.search, $options: "i" } },
+                    { description: { $regex: req.query.search, $options: "i" } },
+                ];
+            }
+        }
+        const cursor = servicesCollection.find(query);
         const services = await cursor.toArray();
         res.send(services);
     } catch (error) {
@@ -97,7 +126,6 @@ router.delete("/:id", async (req, res, next) => {
             success: true,
             message: "Service deleted successfully.",
         });
-
     } catch (error) {
         next(error);
     }
