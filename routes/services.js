@@ -1,5 +1,7 @@
 import { Router } from "express";
 import { servicesCollection } from "../lib/db.js";
+import { ObjectId } from "mongodb";
+import { HttpError } from "../lib/httpError.js";
 
 const router = Router();
 
@@ -72,6 +74,32 @@ router.get("/", async (req, res) => {
             success: false,
             message: "Internal Server Error",
         });
+    }
+});
+
+router.delete("/:id", async (req, res, next) => {
+    try {
+        const serviceId = req.params.id;
+
+        if (!ObjectId.isValid(serviceId)) {
+            throw new HttpError(400, "Invalid service ID.");
+        }
+
+        const result = await servicesCollection.deleteOne({
+            _id: new ObjectId(serviceId),
+        });
+
+        if (result.deletedCount === 0) {
+            throw new HttpError(404, "Service not found.");
+        }
+
+        res.status(200).json({
+            success: true,
+            message: "Service deleted successfully.",
+        });
+
+    } catch (error) {
+        next(error);
     }
 });
 export default router;

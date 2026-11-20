@@ -1,25 +1,44 @@
+
 import express from "express";
 import cors from "cors";
+
 import { env } from "./lib/env.js";
 import { connectToMongoDB } from "./lib/db.js";
+
 import bookingRouter from "./routes/booking.js";
 import uploadsRouter from "./routes/uploads.js";
 import servicesRouter from "./routes/services.js";
 
+import {
+    notFound,
+    errorHandler,
+} from "./middleware/errorHandler.js";
+
 const app = express();
 
+// Global middleware
 app.use(cors());
 app.use(express.json());
 
+// Home route
 app.get("/", (req, res) => {
-  res.send("Hello, World!");
+    res.send("Hello, World!");
 });
 
+// API routes
 app.use("/api/bookings", bookingRouter);
 app.use("/api/uploads", uploadsRouter);
 app.use("/api/services", servicesRouter);
+
+// 404 handler (unknown routes)
+app.use(notFound);
+
+// Global error handler (must be last)
+app.use(errorHandler);
+
+// Connect to MongoDB before starting the server
 await connectToMongoDB();
 
 app.listen(env.PORT, () => {
-  console.log(`Server is running on port ${env.PORT}`);
+    console.log(`Server is running on port ${env.PORT}`);
 });
