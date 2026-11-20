@@ -80,17 +80,33 @@ router.get("/", async (req, res) => {
                 query.isActive = req.query.isActive === "true";
             }
             if (req.query.minPrice) {
-                query.price = { ...query.price, $gte: parseFloat(req.query.minPrice) };
+                query.price = {
+                    ...query.price,
+                    $gte: parseFloat(req.query.minPrice),
+                };
             }
             if (req.query.maxPrice) {
-                query.price = { ...query.price, $lte: parseFloat(req.query.maxPrice) };
+                query.price = {
+                    ...query.price,
+                    $lte: parseFloat(req.query.maxPrice),
+                };
             }
 
-            if(req.query.search){
+            if (req.query.search) {
                 query.$or = [
-                    { serviceName: { $regex: req.query.search, $options: "i" } },
+                    {
+                        serviceName: {
+                            $regex: req.query.search,
+                            $options: "i",
+                        },
+                    },
                     { location: { $regex: req.query.search, $options: "i" } },
-                    { description: { $regex: req.query.search, $options: "i" } },
+                    {
+                        description: {
+                            $regex: req.query.search,
+                            $options: "i",
+                        },
+                    },
                 ];
             }
         }
@@ -107,33 +123,25 @@ router.get("/", async (req, res) => {
 });
 
 router.get("/:id", async (req, res) => {
-    try {
-        const serviceId = req.params.id;
+    const serviceId = req.params.id;
 
-        if (!ObjectId.isValid(serviceId)) {
-            throw new HttpError(400, "Invalid service ID.");
-        }
-
-        const service = await servicesCollection.findOne({
-            _id: new ObjectId(serviceId),
-        });
-
-        if (!service) {
-            throw new HttpError(404, "Service not found.");
-        }
-
-        res.status(200).json({
-            success: true,
-            message: "Service fetched successfully.",
-            data: service,
-        });
-    } catch (error) {
-        console.error("Error fetching service:", error);
-        res.status(500).json({
-            success: false,
-            message: "Internal Server Error",
-        });
+    if (!ObjectId.isValid(serviceId)) {
+        throw new HttpError(400, "Invalid service ID.");
     }
+
+    const service = await servicesCollection.findOne({
+        _id: new ObjectId(serviceId),
+    });
+
+    if (!service) {
+        throw new HttpError(404, "Service not found.");
+    }
+
+    res.status(200).json({
+        success: true,
+        message: "Service fetched successfully.",
+        data: service,
+    });
 });
 
 router.delete("/:id", async (req, res, next) => {
