@@ -27,6 +27,8 @@ router.post("/", async (req, res) => {
 
         // Create service document
         const service = {
+            // TODO(auth): req.user.id once JWT verification is mounted
+            vendorId: req.user?.id ?? req.body.vendorId ?? null,
             serviceName,
             category,
             description,
@@ -35,9 +37,8 @@ router.post("/", async (req, res) => {
             images,
 
             // Additional fields
-            vendorId: req.user?.id ?? null,
             status: "pending",
-            isActive: true,
+            isActive: false,
             deletedAt: null,
             createdAt: new Date(),
             updatedAt: new Date(),
@@ -67,6 +68,9 @@ router.get("/", async (req, res) => {
     try {
         const query = {};
         if (req.query) {
+            if (req.query.vendorId) {
+                query.vendorId = req.query.vendorId;
+            }
             if (req.query.category) {
                 query.category = req.query.category;
             }
@@ -120,6 +124,27 @@ router.get("/", async (req, res) => {
             message: "Internal Server Error",
         });
     }
+});
+
+router.get("/count", async (req, res) => {
+    const query = {};
+    if (req.query.vendorId) {
+        query.vendorId = req.query.vendorId;
+    }
+    if (req.query.category) {
+        query.category = req.query.category;
+    }
+    if (req.query.location) {
+        query.location = { $regex: req.query.location, $options: "i" };
+    }
+    if (req.query.status) {
+        query.status = req.query.status;
+    }
+    if (req.query.isActive) {
+        query.isActive = req.query.isActive === "true";
+    }
+    const count = await servicesCollection.countDocuments(query);
+    res.send({ success: true, data: { count } });
 });
 
 router.get("/:id", async (req, res) => {

@@ -4,25 +4,42 @@ import { HttpError } from "../lib/httpError.js";
 import { ObjectId } from "mongodb";
 
 const router = Router();
+router.get("/", async (req, res) => {
+    const query = {};
 
-// GET /api/bookings?userId=... -> the signed in customer's requests
-router.get("/", async (req, res, next) => {
-    try {
-        const { userId } = req.query;
-        const filter = userId ? { userId: String(userId) } : {};
-
-        const bookings = await bookingCollection
-            .find(filter)
-            .sort({ createdAt: -1 })
-            .toArray();
-
-        res.json({ success: true, data: bookings });
-    } catch (error) {
-        next(error);
+    if (req.query.customerId) {
+        query.customerId = req.query.customerId;
     }
+    if (req.query.serviceId) {
+        // query.serviceId = req.query.serviceId; 
+        const serviceQuery = { _id: new ObjectId(req.query.serviceId) };
+        const service = await servicesCollection.findOne(serviceQuery);
+        if (service.vendorId !== req.user?._id.toString() && req.user?.role !== "admin") {
+            throw new HttpError(403, "Forbidden");
+        }
+        query.serviceId = req.query.serviceId;
+    }
+
+    const cursor = bookingCollection.find(query);
+    const result = await cursor.toArray();
+    res.json({ success: true, data: result });
+});
+
+
+
+router.get("/count", async (req, res) => {
+    console.log("Booking count request received:", req.query);
+    const query = {}
+    const customerId = req.query.customerId;
+    if (customerId) {
+        query.customerId = String(customerId);
+    }
+    const count = await bookingCollection.countDocuments(query);
+    res.send({ success: true, data: { count } });
 });
 
 router.post("/", async (req, res, next) => {
+    console.log("Booking request received:", req.body);
     try {
         const {
             serviceId,
@@ -31,7 +48,7 @@ router.post("/", async (req, res, next) => {
             eventDate,
             eventLocation,
             message,
-            userId,
+            customerId,
             email,
         } = req.body;
 
@@ -53,7 +70,7 @@ router.post("/", async (req, res, next) => {
             eventDate,
             eventLocation,
             message: message || "",
-            userId,
+            customerId,
             email,
             status: "pending",
             createdAt: new Date(),
