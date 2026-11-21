@@ -8,6 +8,7 @@ export const stripe = new Stripe(env.STRIPE_SECRET_KEY);
 import { env } from "./lib/env.js";
 import { connectToMongoDB } from "./lib/db.js";
 
+import userRouter from "./routes/user.js";
 import bookingRouter from "./routes/booking.js";
 import uploadsRouter from "./routes/uploads.js";
 import servicesRouter from "./routes/services.js";
@@ -30,6 +31,7 @@ app.get("/", (req, res) => {
 });
 
 // API routes
+app.use("/api/users", userRouter);
 app.use("/api/bookings", bookingRouter);
 app.use("/api/uploads", uploadsRouter);
 app.use("/api/services", servicesRouter);
