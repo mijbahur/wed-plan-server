@@ -1,13 +1,17 @@
 
 import express from "express";
 import cors from "cors";
+import Stripe from "stripe";
 
+export const stripe = new Stripe(env.STRIPE_SECRET_KEY);
+ 
 import { env } from "./lib/env.js";
 import { connectToMongoDB } from "./lib/db.js";
 
 import bookingRouter from "./routes/booking.js";
 import uploadsRouter from "./routes/uploads.js";
 import servicesRouter from "./routes/services.js";
+import transactionRouter from "./routes/transaction.js";
 
 import {
     notFound,
@@ -29,6 +33,7 @@ app.get("/", (req, res) => {
 app.use("/api/bookings", bookingRouter);
 app.use("/api/uploads", uploadsRouter);
 app.use("/api/services", servicesRouter);
+app.use("/api/transactions", transactionRouter);
 
 // 404 handler (unknown routes)
 app.use(notFound);
