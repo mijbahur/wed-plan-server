@@ -51,7 +51,9 @@ router.post("/checkout-verify", async (req, res) => {
 });
 
 router.get("/", async (req, res) => {
-    res.send({ success: true, message: "Transaction route is working!" });
+    const cursor = transactionsCollection.find({});
+    const transactions = await cursor.toArray();
+    res.send({ success: true, transactions });
 });
 
 export default router;
