@@ -2,6 +2,8 @@ import { Router } from "express";
 import { db, userCollection } from "../lib/db.js";
 import { HttpError } from "../lib/httpError.js";
 import { ObjectId } from "mongodb";
+import { verifyToken } from "../middleware/verifyToken.js";
+import { verifyAdmin } from "../middleware/verifyRole.js";
 // import { requireAdmin } from "../middleware/requireAdmin.js";
 
 const router = Router();
@@ -13,7 +15,7 @@ router.get("/", async (req, res) => {
     res.send({ success: true, users });
 })
 
-router.get("/:id/premium", async (req, res) => {
+router.get("/:id/premium", verifyToken, async (req, res) => {
     const { id } = req.params;
     const user = await userCollection.findOne({ _id: new ObjectId(id) }, { projection: { isPremium: 1 } });
     if (!user) {
@@ -22,8 +24,7 @@ router.get("/:id/premium", async (req, res) => {
     res.send({ success: true, isPremium: user.isPremium, userId: id });
 });
 
-router.patch("/:id/role", async (req, res) => {
-    console.log("Block/unblock request received for user ID:", req.params.id, "with body:", req.body);
+router.patch("/:id/role", verifyToken, verifyAdmin, async (req, res) => {
     const { id } = req.params;
     const { userRole } = req.body;
     if (!ObjectId.isValid(id)) {
@@ -54,7 +55,7 @@ router.patch("/:id/role", async (req, res) => {
     });
 });
 
-router.patch("/:id/block", async (req, res, next) => {
+router.patch("/:id/block", verifyToken, verifyAdmin, async (req, res, next) => {
     try {
         const { id } = req.params;
         const { isBlocked } = req.body;

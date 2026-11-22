@@ -49,3 +49,5 @@ await connectToMongoDB();
 app.listen(env.PORT, () => {
     console.log(`Server is running on port ${env.PORT}`);
 });
+
+export default app;

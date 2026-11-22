@@ -3,9 +3,11 @@ import { transactionsCollection, userCollection } from "../lib/db.js";
 import { HttpError } from "../lib/httpError.js";
 import { stripe } from "../index.js";
 import { ObjectId } from "mongodb";
+import { verifyToken } from "../middleware/verifyToken.js";
+import { verifyAdmin } from "../middleware/verifyRole.js";
 
 const router = Router();
-router.post("/checkout-verify", async (req, res) => {
+router.post("/checkout-verify", verifyToken, async (req, res) => {
     const { sessionId } = req.body;
 
     if (!sessionId) {
@@ -50,7 +52,7 @@ router.post("/checkout-verify", async (req, res) => {
     res.send({ success: false, message: "Payment verification failed" });
 });
 
-router.get("/", async (req, res) => {
+router.get("/", verifyToken, verifyAdmin, async (req, res) => {
     const cursor = transactionsCollection.find({});
     const transactions = await cursor.toArray();
     res.send({ success: true, transactions });

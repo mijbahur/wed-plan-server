@@ -3,112 +3,53 @@ import { bookingCollection, servicesCollection } from "../lib/db.js";
 import { HttpError } from "../lib/httpError.js";
 import { ObjectId } from "mongodb";
 import { verifyToken } from "../middleware/verifyToken.js";
+import { verifyCustomer, verifyVendor } from "../middleware/verifyRole.js";
 
 const router = Router();
-// router.get("/", verifyToken, async (req, res) => {
-//     const query = {};
-
-//     if (req.query.customerId) {
-//         const customerId = String(req.query.customerId);
-//         if (customerId !== req.user._id.toString()) {
-//             throw new HttpError(403, "You are not authorized to view this booking.");
-//         }
-//         const bookingQuery = { _id: new ObjectId(req.query.customerId) };
-//         const booking = await bookingCollection.findOne(bookingQuery);
-//         if (!booking) {
-//             throw new HttpError(404, "Booking not found.");
-//         }
-//         query.customerId = req.query.customerId;
-//     }
-//     if (req.query.vendorId) {
-//         const vendorId = String(req.query.vendorId);
-//         const vendorServices = await servicesCollection
-//             .find({ vendorId })
-//             .project({ _id: 1 })
-//             .toArray();
-//         const serviceIds = vendorServices.map((service) =>
-//             service._id.toString(),
-//         );
-
-//         query.$or = [{ vendorId }, { serviceId: { $in: serviceIds } }];
-//     }
-//     if (req.query.serviceId) {
-//         if (!ObjectId.isValid(req.query.serviceId)) {
-//             throw new HttpError(400, "Invalid service ID.");
-//         }
-//         const serviceQuery = { _id: new ObjectId(req.query.serviceId) };
-//         const service = await servicesCollection.findOne(serviceQuery);
-//         if (service.vendorId !== req.user._id.toString()) {
-//             throw new HttpError(403, "You are not authorized to view this booking.");
-//         }
-//         if (!service) {
-//             throw new HttpError(404, "Service not found.");
-//         }
-//         query.serviceId = req.query.serviceId;
-//     }
-
-//     const cursor = bookingCollection.find(query);
-//     const result = await cursor.toArray();
-//     res.json({ success: true, data: result });
-// });
 
 router.get("/", verifyToken, async (req, res) => {
-    const query = {};
-    if (req.query.customerId) {
-        const customerId = String(req.query.customerId);
-    }
-    if (req.query.vendorId) {
-        const vendorId = String(req.query.vendorId);
-    }
-    const customerId = req.query.customerId
-        ? String(req.query.customerId)
-        : undefined;
-
-    if (customerId) query.customerId = customerId;
     const userId = req.user._id.toString();
     const role = req.user.role;
 
-    if (role === "vendor") {
-        const vendorServices = await servicesCollection
-            .find({ vendorId: userId })
-            .project({ _id: 1 })
-            .toArray();
-        const serviceIds = vendorServices.map((s) => s._id.toString());
-
-        query = {
-            $or: [{ vendorId: userId }, { serviceId: { $in: serviceIds } }],
-        };
-
-        // Optional: narrow to one of their own services
-        if (req.query.serviceId) {
-            if (!serviceIds.includes(String(req.query.serviceId))) {
-                throw new HttpError(403, "You are not authorized to view these bookings.");
-            }
-            query = { $and: [query, { serviceId: String(req.query.serviceId) }] };
+    const query = {};
+    if (req.query.customerId) {
+        const bookingQuery = { customerId: String(req.query.customerId) };
+        const booking = await bookingCollection.findOne(bookingQuery);
+        if (!booking) {
+            throw new HttpError(404, "No Booking found ");
         }
-    } else {
-        // Customer: only their own bookings
-        // query = { customerId: userId };
-            const result = await bookingCollection.findOne({ customerId: userId });
-            console.log("Booking result:", result);
-            if (customerId !== userId) {
-                console.log("cuseomrid", customerId, "userId", result.customerId.toString());
-                throw new HttpError(403, "You are not authorized to view this booking.")
-            }
-
-        if (req.query.serviceId) {
-            query.serviceId = String(req.query.serviceId);
+        if (booking.customerId !== userId && role !== "admin") {
+            throw new HttpError(403, "Unauthorized to view this booking.");
         }
+        query.customerId = String(req.query.customerId);
     }
+    if (req.query.vendorId) {
 
+        const bookingQuery = { vendorId: String(req.query.vendorId) };
+        const booking = await bookingCollection.findOne(bookingQuery);
+        if (!booking) {
+            throw new HttpError(404, "No Booking found ");
+        }
+        if (booking.vendorId !== userId && role !== "admin") {
+            throw new HttpError(403, "Unauthorized to view this booking.");
+        }
+        query.vendorId = String(req.query.vendorId);
+    }
+    if (!Object.keys(query).length > 0 && role !== "admin") {
+        throw new HttpError(403, "You are not authorized to view bookings.");
+    }
     const result = await bookingCollection
         .find(query)
         .sort({ createdAt: -1 })
         .toArray();
 
-    res.json({ success: true, data: result });
+    res.json({
+        success: true,
+        data: result,
+    });
 });
-router.get("/count", async (req, res) => {
+
+router.get("/count", verifyToken, async (req, res) => {
     const query = {};
     const customerId = req.query.customerId;
     if (customerId) {
@@ -118,7 +59,7 @@ router.get("/count", async (req, res) => {
     res.send({ success: true, data: { count } });
 });
 
-router.post("/", async (req, res, next) => {
+router.post("/", verifyToken, verifyCustomer, async (req, res, next) => {
     try {
         const {
             serviceId,
@@ -182,8 +123,11 @@ router.post("/", async (req, res, next) => {
     }
 });
 
-router.patch("/:id/accept", async (req, res, next) => {
+router.patch("/:id/accept", verifyToken, async (req, res, next) => {
     try {
+        if (req.user.userRole === "customer" ) {
+            throw new HttpError(403, "Unauthorized to accept this booking.");
+        }
         const { id } = req.params;
         if (!ObjectId.isValid(id)) {
             throw new HttpError(400, "Invalid booking ID.");
@@ -194,6 +138,9 @@ router.patch("/:id/accept", async (req, res, next) => {
         });
         if (!booking) {
             throw new HttpError(404, "Booking not found.");
+        }
+        if (booking?.vendorId !== req.user._id.toString() && req.user.userRole !== "admin") {
+            throw new HttpError(403, "Unauthorized to accept this booking.");
         }
         if (booking.status !== "pending") {
             throw new HttpError(409, "Only pending requests can be accepted.");
@@ -216,8 +163,11 @@ router.patch("/:id/accept", async (req, res, next) => {
     }
 });
 
-router.patch("/:id/reject", async (req, res, next) => {
+router.patch("/:id/reject", verifyToken, async (req, res, next) => {
     try {
+        if (req.user.userRole === "customer" ) {
+            throw new HttpError(403, "Unauthorized to reject this booking.");
+        }
         const { id } = req.params;
         if (!ObjectId.isValid(id)) {
             throw new HttpError(400, "Invalid booking ID.");
@@ -228,6 +178,9 @@ router.patch("/:id/reject", async (req, res, next) => {
         });
         if (!booking) {
             throw new HttpError(404, "Booking not found.");
+        }
+        if (booking?.vendorId !== req.user._id.toString() && req.user.userRole !== "admin") {
+            throw new HttpError(403, "Unauthorized to reject this booking.");
         }
         if (booking.status !== "pending") {
             throw new HttpError(409, "Only pending requests can be rejected.");
@@ -250,7 +203,7 @@ router.patch("/:id/reject", async (req, res, next) => {
     }
 });
 
-router.patch("/:id/cancel", async (req, res, next) => {
+router.patch("/:id/cancel", verifyToken, verifyCustomer, async (req, res, next) => {
     try {
         const { id } = req.params;
 
@@ -264,6 +217,9 @@ router.patch("/:id/cancel", async (req, res, next) => {
 
         if (!booking) {
             throw new HttpError(404, "Booking not found.");
+        }
+        if (booking?.customerId !== req.user._id.toString() && req.user.userRole !== "admin") {
+            throw new HttpError(403, "Unauthorized to cancel this booking.");
         }
 
         if (booking.status !== "pending") {

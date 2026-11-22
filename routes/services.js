@@ -2,10 +2,12 @@ import { Router } from "express";
 import { servicesCollection } from "../lib/db.js";
 import { ObjectId } from "mongodb";
 import { HttpError } from "../lib/httpError.js";
+import { verifyToken } from "../middleware/verifyToken.js";
+import { verifyAdmin } from "../middleware/verifyRole.js";
 
 const router = Router();
 
-router.post("/", async (req, res) => {
+router.post("/", verifyToken, async (req, res) => {
     try {
         const { serviceName, category, description, price, location, images } =
             req.body;
@@ -24,11 +26,16 @@ router.post("/", async (req, res) => {
                 message: "Please provide all required service information.",
             });
         }
+        if (!req.user?.userRole || req.user.userRole === "customer") {
+            return res.status(401).json({
+                success: false,
+                message: "Unauthorized",
+            });
+        }
 
         // Create service document
         const service = {
-            // TODO(auth): req.user.id once JWT verification is mounted
-            vendorId: req.user?.id ?? req.body.vendorId ?? null,
+            vendorId: req.user?._id.toString() ?? req.body.vendorId ?? null,
             serviceName,
             category,
             description,
@@ -169,7 +176,7 @@ router.get("/:id", async (req, res) => {
     });
 });
 
-router.patch("/:id", async (req, res) => {
+router.patch("/:id", verifyToken, async (req, res) => {
     const { id } = req.params;
     if (!ObjectId.isValid(id)) {
         throw new HttpError(400, "Invalid service ID.");
@@ -177,11 +184,15 @@ router.patch("/:id", async (req, res) => {
 
     const query = { _id: new ObjectId(id) };
     const service = await servicesCollection.findOne(query);
+
     if (!service) {
         throw new HttpError(404, "Service not found.");
     }
+    if (service.vendorId !== req.user?._id.toString() && req.user?.role !== "admin") {
+        throw new HttpError(403, "You are not authorized to update this service.");
+    }
 
-    let updateFields;
+    let updateFields = {};
     if (Object.prototype.hasOwnProperty.call(req.body, "status")) {
         const isActive =
             req.body.status === true ||
@@ -222,7 +233,7 @@ router.patch("/:id", async (req, res) => {
     });
 });
 
-router.patch("/:id/accept", async (req, res, next) => {
+router.patch("/:id/accept", verifyToken, verifyAdmin, async (req, res, next) => {
     try {
         const { id } = req.params;
         if (!ObjectId.isValid(id)) {
@@ -247,7 +258,7 @@ router.patch("/:id/accept", async (req, res, next) => {
         next(error);
     }
 }); 
-router.patch("/:id/reject", async (req, res, next) => {
+router.patch("/:id/reject",verifyToken, verifyAdmin, async (req, res, next) => {
     try {
         const { id } = req.params;
         if (!ObjectId.isValid(id)) {
@@ -273,12 +284,23 @@ router.patch("/:id/reject", async (req, res, next) => {
     }
 });
 
-router.delete("/:id", async (req, res, next) => {
+router.delete("/:id", verifyToken, async (req, res, next) => {
     try {
         const serviceId = req.params.id;
 
         if (!ObjectId.isValid(serviceId)) {
             throw new HttpError(400, "Invalid service ID.");
+        }
+        const service = await servicesCollection.findOne({
+            _id: new ObjectId(serviceId),
+        });
+
+        if (!service) {
+            throw new HttpError(404, "Service not found.");
+        }
+
+        if (service.vendorId !== req.user?._id.toString() && req.user?.role !== "admin") {
+            throw new HttpError(403, "Unauthorized to delete this service.");
         }
 
         const result = await servicesCollection.deleteOne({
