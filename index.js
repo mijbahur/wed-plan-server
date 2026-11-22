@@ -27,7 +27,7 @@ app.use(express.json());
 
 // Home route
 app.get("/", (req, res) => {
-    res.send("Hello, World!");
+    res.send("Wedding Planner API is running.");
 });
 
 // API routes

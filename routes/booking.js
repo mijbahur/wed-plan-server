@@ -9,31 +9,22 @@ const router = Router();
 
 router.get("/", verifyToken, async (req, res) => {
     const userId = req.user._id.toString();
-    const role = req.user.role;
+    const role = req.user.userRole || req.user.role;
 
     const query = {};
     if (req.query.customerId) {
-        const bookingQuery = { customerId: String(req.query.customerId) };
-        const booking = await bookingCollection.findOne(bookingQuery);
-        if (!booking) {
-            throw new HttpError(404, "No Booking found ");
-        }
-        if (booking.customerId !== userId && role !== "admin") {
+        const customerId = String(req.query.customerId);
+        if (customerId !== userId && role !== "admin") {
             throw new HttpError(403, "Unauthorized to view this booking.");
         }
-        query.customerId = String(req.query.customerId);
+        query.customerId = customerId;
     }
     if (req.query.vendorId) {
-
-        const bookingQuery = { vendorId: String(req.query.vendorId) };
-        const booking = await bookingCollection.findOne(bookingQuery);
-        if (!booking) {
-            throw new HttpError(404, "No Booking found ");
-        }
-        if (booking.vendorId !== userId && role !== "admin") {
+        const vendorId = String(req.query.vendorId);
+        if (vendorId !== userId && role !== "admin") {
             throw new HttpError(403, "Unauthorized to view this booking.");
         }
-        query.vendorId = String(req.query.vendorId);
+        query.vendorId = vendorId;
     }
     if (!Object.keys(query).length > 0 && role !== "admin") {
         throw new HttpError(403, "You are not authorized to view bookings.");

@@ -1,55 +1,80 @@
 import { Router } from "express";
-import { transactionsCollection, userCollection } from "../lib/db.js";
+import { transactionsCollection } from "../lib/db.js";
 import { HttpError } from "../lib/httpError.js";
 import { stripe } from "../index.js";
-import { ObjectId } from "mongodb";
 import { verifyToken } from "../middleware/verifyToken.js";
-import { verifyAdmin } from "../middleware/verifyRole.js";
+import { verifyAdmin, verifyVendor } from "../middleware/verifyRole.js";
 
 const router = Router();
-router.post("/checkout-verify", verifyToken, async (req, res) => {
+router.post("/checkout-verify", verifyToken, verifyVendor, async (req, res) => {
     const { sessionId } = req.body;
 
-    if (!sessionId) {
-        return res.send({ success: false, message: "Session ID is required" });
+    if (typeof sessionId !== "string" || !sessionId.startsWith("cs_")) {
+        throw new HttpError(400, "A valid Stripe session ID is required.");
     }
 
-    const { status, payment_status, customer_email, metadata, payment_intent } =
-        await stripe.checkout.sessions.retrieve(sessionId);
-    if (status === "complete" && payment_status === "paid") {
-        const sessionQuery = { sessionId };
-        const existingPayment =
-            await transactionsCollection.findOne(sessionQuery);
-        if (existingPayment) {
-            return res.send({
-                success: false,
-                message: "Payment already verified",
-            });
+    const session = await stripe.checkout.sessions.retrieve(sessionId);
+    const userId = String(req.user._id);
+
+    // The session must have been created for the signed-in user.
+    if (session.metadata?.userId !== userId) {
+        throw new HttpError(403, "This checkout session does not belong to you.");
+    }
+
+    if (session.status !== "complete" || session.payment_status !== "paid") {
+        return res.status(409).send({
+            success: false,
+            message: "Payment is not complete yet.",
+        });
+    }
+
+    const existingPayment = await transactionsCollection.findOne({ stripeSessionId: session.id });
+    if (existingPayment) {
+        if (String(existingPayment.vendorId) !== userId) {
+            throw new HttpError(403, "This checkout session does not belong to you.");
         }
-        const payment = {
-            sessionId,
-            status,
-            payment_status,
-            customer_email,
-            userId: metadata.userId,
-            payment_date: new Date(),
-            payment_intent,
-        };
-
-        const result = await transactionsCollection.insertOne(payment);
-
-        const query = { _id: new ObjectId(metadata.userId) };
-
-        const updatedDoc = {
-            $set: {
-                isPremium: true,
-            },
-        };
-        const updateResult = await userCollection.updateOne(query, updatedDoc);
-        res.send({ success: true, result, updateResult });
-        return;
+        return res.send({ success: true, alreadyVerified: true, transaction: existingPayment });
     }
-    res.send({ success: false, message: "Payment verification failed" });
+
+    if (!Number.isInteger(session.amount_total) || !session.currency) {
+        throw new HttpError(400, "Stripe did not return a valid amount and currency.");
+    }
+
+    const now = new Date();
+    const transaction = {
+        stripeSessionId: session.id,
+        vendorId: req.user._id,
+        plan: "premium",
+        amount: session.amount_total, // Stripe amount in the currency's smallest unit (for example, cents).
+        currency: session.currency.toLowerCase(),
+        status: "paid",
+        createdAt: now,
+        paidAt: now,
+    };
+
+    if (session.subscription) {
+        transaction.stripeSubscriptionId = typeof session.subscription === "string"
+            ? session.subscription
+            : session.subscription.id;
+    }
+    if (session.invoice) {
+        transaction.stripeInvoiceId = typeof session.invoice === "string"
+            ? session.invoice
+            : session.invoice.id;
+    }
+
+    try {
+        await transactionsCollection.insertOne(transaction);
+    } catch (error) {
+        // The unique index also blocks simultaneous verification requests.
+        if (error.code !== 11000) throw error;
+        const existing = await transactionsCollection.findOne({ stripeSessionId: session.id });
+        if (!existing || String(existing.vendorId) !== userId) throw error;
+        return res.send({ success: true, alreadyVerified: true, transaction: existing });
+    }
+
+    // Premium activation belongs in the verified Stripe webhook, not this return-page route.
+    return res.status(201).send({ success: true, alreadyVerified: false, transaction });
 });
 
 router.get("/", verifyToken, verifyAdmin, async (req, res) => {
