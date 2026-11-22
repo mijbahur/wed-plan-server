@@ -2,8 +2,10 @@ import { Router } from "express";
 import { db, userCollection } from "../lib/db.js";
 import { HttpError } from "../lib/httpError.js";
 import { ObjectId } from "mongodb";
+// import { requireAdmin } from "../middleware/requireAdmin.js";
 
 const router = Router();
+const ALLOWED_ROLES = ["admin", "customer", "vendor"];
 
 router.get("/", async (req, res) => { 
     const cursor = userCollection.find({});
@@ -21,30 +23,34 @@ router.get("/:id/premium", async (req, res) => {
 });
 
 router.patch("/:id/role", async (req, res) => {
+    console.log("Block/unblock request received for user ID:", req.params.id, "with body:", req.body);
     const { id } = req.params;
-    const { role } = req.body;
-
+    const { userRole } = req.body;
     if (!ObjectId.isValid(id)) {
         throw new HttpError(400, "Invalid user ID.");
     }
 
-    if (!role) {
-        throw new HttpError(400, "Please provide a role.");
+    if (!userRole || !ALLOWED_ROLES.includes(userRole)) {
+        throw new HttpError(400, "Please provide a valid userRole.");
     }
 
     const query = { _id: new ObjectId(id) };
-    const updateDoc = { $set: { role } };
 
-    const updatedUser = await userCollection.updateOne(query, updateDoc);
+    const updateDoc =
+        userRole === "admin"
+            ? { $set: { userRole: "admin", role: "admin" } }
+            : { $set: { userRole }, $unset: { role: "" } };
 
-    if (updatedUser.modifiedCount === 0) {
-        throw new HttpError(400, "Failed to update user.");
+    const result = await userCollection.updateOne(query, updateDoc);
+
+    if (result.matchedCount === 0) {
+        throw new HttpError(404, "User not found.");
     }
 
     res.status(200).json({
         success: true,
         message: "User role updated successfully.",
-        data: updatedUser,
+        data: result,
     });
 });
 

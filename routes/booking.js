@@ -2,53 +2,114 @@ import { Router } from "express";
 import { bookingCollection, servicesCollection } from "../lib/db.js";
 import { HttpError } from "../lib/httpError.js";
 import { ObjectId } from "mongodb";
+import { verifyToken } from "../middleware/verifyToken.js";
 
 const router = Router();
-router.get("/", async (req, res) => {
-    const query = {};
-    console.log("Booking query parameters received:", req.query);
+// router.get("/", verifyToken, async (req, res) => {
+//     const query = {};
 
+//     if (req.query.customerId) {
+//         const customerId = String(req.query.customerId);
+//         if (customerId !== req.user._id.toString()) {
+//             throw new HttpError(403, "You are not authorized to view this booking.");
+//         }
+//         const bookingQuery = { _id: new ObjectId(req.query.customerId) };
+//         const booking = await bookingCollection.findOne(bookingQuery);
+//         if (!booking) {
+//             throw new HttpError(404, "Booking not found.");
+//         }
+//         query.customerId = req.query.customerId;
+//     }
+//     if (req.query.vendorId) {
+//         const vendorId = String(req.query.vendorId);
+//         const vendorServices = await servicesCollection
+//             .find({ vendorId })
+//             .project({ _id: 1 })
+//             .toArray();
+//         const serviceIds = vendorServices.map((service) =>
+//             service._id.toString(),
+//         );
+
+//         query.$or = [{ vendorId }, { serviceId: { $in: serviceIds } }];
+//     }
+//     if (req.query.serviceId) {
+//         if (!ObjectId.isValid(req.query.serviceId)) {
+//             throw new HttpError(400, "Invalid service ID.");
+//         }
+//         const serviceQuery = { _id: new ObjectId(req.query.serviceId) };
+//         const service = await servicesCollection.findOne(serviceQuery);
+//         if (service.vendorId !== req.user._id.toString()) {
+//             throw new HttpError(403, "You are not authorized to view this booking.");
+//         }
+//         if (!service) {
+//             throw new HttpError(404, "Service not found.");
+//         }
+//         query.serviceId = req.query.serviceId;
+//     }
+
+//     const cursor = bookingCollection.find(query);
+//     const result = await cursor.toArray();
+//     res.json({ success: true, data: result });
+// });
+
+router.get("/", verifyToken, async (req, res) => {
+    const query = {};
     if (req.query.customerId) {
-        query.customerId = req.query.customerId;
+        const customerId = String(req.query.customerId);
     }
     if (req.query.vendorId) {
         const vendorId = String(req.query.vendorId);
+    }
+    const customerId = req.query.customerId
+        ? String(req.query.customerId)
+        : undefined;
+
+    if (customerId) query.customerId = customerId;
+    const userId = req.user._id.toString();
+    const role = req.user.role;
+
+    if (role === "vendor") {
         const vendorServices = await servicesCollection
-            .find({ vendorId })
+            .find({ vendorId: userId })
             .project({ _id: 1 })
             .toArray();
-        const serviceIds = vendorServices.map((service) => service._id.toString());
+        const serviceIds = vendorServices.map((s) => s._id.toString());
 
-        query.$or = [
-            { vendorId },
-            { serviceId: { $in: serviceIds } },
-        ];
-    }
-    if (req.query.serviceId) {
-        console.log("Service ID query parameter received:", req.query.serviceId);
-        if (!ObjectId.isValid(req.query.serviceId)) {
-            throw new HttpError(400, "Invalid service ID.");
+        query = {
+            $or: [{ vendorId: userId }, { serviceId: { $in: serviceIds } }],
+        };
+
+        // Optional: narrow to one of their own services
+        if (req.query.serviceId) {
+            if (!serviceIds.includes(String(req.query.serviceId))) {
+                throw new HttpError(403, "You are not authorized to view these bookings.");
+            }
+            query = { $and: [query, { serviceId: String(req.query.serviceId) }] };
         }
-        const serviceQuery = { _id: new ObjectId(req.query.serviceId) };
-        const service = await servicesCollection.findOne(serviceQuery);
-        console.log("Service fetched from database:", service);
-        if (!service) {
-            throw new HttpError(404, "Service not found.");
+    } else {
+        // Customer: only their own bookings
+        // query = { customerId: userId };
+            const result = await bookingCollection.findOne({ customerId: userId });
+            console.log("Booking result:", result);
+            if (customerId !== userId) {
+                console.log("cuseomrid", customerId, "userId", result.customerId.toString());
+                throw new HttpError(403, "You are not authorized to view this booking.")
+            }
+
+        if (req.query.serviceId) {
+            query.serviceId = String(req.query.serviceId);
         }
-        query.serviceId = req.query.serviceId;
     }
 
-    console.log("Final query for fetching bookings:", query);
-    const cursor = bookingCollection.find(query);
-    const result = await cursor.toArray();
+    const result = await bookingCollection
+        .find(query)
+        .sort({ createdAt: -1 })
+        .toArray();
+
     res.json({ success: true, data: result });
 });
-
-
-
 router.get("/count", async (req, res) => {
-    console.log("Booking count request received:", req.query);
-    const query = {}
+    const query = {};
     const customerId = req.query.customerId;
     if (customerId) {
         query.customerId = String(customerId);
@@ -58,7 +119,6 @@ router.get("/count", async (req, res) => {
 });
 
 router.post("/", async (req, res, next) => {
-    console.log("Booking request received:", req.body);
     try {
         const {
             serviceId,
@@ -129,7 +189,9 @@ router.patch("/:id/accept", async (req, res, next) => {
             throw new HttpError(400, "Invalid booking ID.");
         }
 
-        const booking = await bookingCollection.findOne({ _id: new ObjectId(id) });
+        const booking = await bookingCollection.findOne({
+            _id: new ObjectId(id),
+        });
         if (!booking) {
             throw new HttpError(404, "Booking not found.");
         }
@@ -139,7 +201,13 @@ router.patch("/:id/accept", async (req, res, next) => {
 
         await bookingCollection.updateOne(
             { _id: booking._id },
-            { $set: { status: "accepted", respondedAt: new Date(), updatedAt: new Date() } },
+            {
+                $set: {
+                    status: "accepted",
+                    respondedAt: new Date(),
+                    updatedAt: new Date(),
+                },
+            },
         );
 
         res.json({ success: true, message: "Booking request accepted." });
@@ -155,7 +223,9 @@ router.patch("/:id/reject", async (req, res, next) => {
             throw new HttpError(400, "Invalid booking ID.");
         }
 
-        const booking = await bookingCollection.findOne({ _id: new ObjectId(id) });
+        const booking = await bookingCollection.findOne({
+            _id: new ObjectId(id),
+        });
         if (!booking) {
             throw new HttpError(404, "Booking not found.");
         }
@@ -165,7 +235,13 @@ router.patch("/:id/reject", async (req, res, next) => {
 
         await bookingCollection.updateOne(
             { _id: booking._id },
-            { $set: { status: "rejected", respondedAt: new Date(), updatedAt: new Date() } },
+            {
+                $set: {
+                    status: "rejected",
+                    respondedAt: new Date(),
+                    updatedAt: new Date(),
+                },
+            },
         );
 
         res.json({ success: true, message: "Booking request rejected." });
