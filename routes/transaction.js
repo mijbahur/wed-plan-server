@@ -44,8 +44,10 @@ router.post("/checkout-verify", verifyToken, verifyVendor, async (req, res) => {
     const transaction = {
         stripeSessionId: session.id,
         vendorId: req.user._id,
+        vendorName: req.user.name,
+        vendorEmail: req.user.email,
         plan: "premium",
-        amount: session.amount_total, // Stripe amount in the currency's smallest unit (for example, cents).
+        amount: session.amount_total/100, // Stripe amount in the currency's smallest unit (for example, cents).
         currency: session.currency.toLowerCase(),
         status: "paid",
         createdAt: now,

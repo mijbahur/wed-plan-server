@@ -13,6 +13,7 @@ import bookingRouter from "./routes/booking.js";
 import uploadsRouter from "./routes/uploads.js";
 import servicesRouter from "./routes/services.js";
 import transactionRouter from "./routes/transaction.js";
+import profileRouter from "./routes/profile.js";
 
 import {
     notFound,
@@ -36,6 +37,7 @@ app.use("/api/bookings", bookingRouter);
 app.use("/api/uploads", uploadsRouter);
 app.use("/api/services", servicesRouter);
 app.use("/api/transactions", transactionRouter);
+app.use("/api/profile", profileRouter);
 
 // 404 handler (unknown routes)
 app.use(notFound);

@@ -2,6 +2,7 @@ import express from "express";
 import multer from "multer";
 import rateLimit from "express-rate-limit";
 import { uploadToImgBB } from "../services/imgbb.js";
+import { verifyToken } from "../middleware/verifyToken.js";
 
 const router = express.Router();
 const publicUploadLimit = rateLimit({
@@ -53,39 +54,34 @@ function hasValidImageSignature(buffer, mimetype) {
     );
 }
 
-router.post(
-    "/public",
-    publicUploadLimit,
-    upload.single("image"),
-    async (req, res) => {
-        if (
-            !req.file ||
-            !hasValidImageSignature(req.file.buffer, req.file.mimetype)
-        ) {
-            res.status(422).json({
-                success: false,
-                error: {
-                    code: "INVALID_IMAGE",
-                    message: "Upload a valid JPG, PNG, or WebP image.",
-                },
-            });
-            return;
-        }
+async function handleImageUpload(req, res) {
+    if (!req.file || !hasValidImageSignature(req.file.buffer, req.file.mimetype)) {
+        res.status(422).json({
+            success: false,
+            error: {
+                code: "INVALID_IMAGE",
+                message: "Upload a valid JPG, PNG, or WebP image.",
+            },
+        });
+        return;
+    }
 
-        try {
-            const url = await uploadToImgBB(req.file);
-            res.status(201).json({ success: true, data: { url } });
-        } catch (error) {
-            console.error("Public image upload failed:", error);
-            res.status(502).json({
-                success: false,
-                error: {
-                    code: "UPLOAD_FAILED",
-                    message: "The image could not be uploaded.",
-                },
-            });
-        }
-    },
-);
+    try {
+        const url = await uploadToImgBB(req.file);
+        res.status(201).json({ success: true, data: { url } });
+    } catch (error) {
+        console.error("Image upload failed:", error);
+        res.status(502).json({
+            success: false,
+            error: {
+                code: "UPLOAD_FAILED",
+                message: "The image could not be uploaded.",
+            },
+        });
+    }
+}
+
+router.post("/public", publicUploadLimit, upload.single("image"), handleImageUpload);
+router.post("/image", verifyToken, upload.single("image"), handleImageUpload);
 
 export default router;

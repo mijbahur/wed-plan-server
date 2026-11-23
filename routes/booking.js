@@ -54,17 +54,12 @@ router.post("/", verifyToken, verifyCustomer, async (req, res, next) => {
     try {
         const {
             serviceId,
-            serviceName,
-            customerName,
-            serviceImage,
             eventDate,
             eventLocation,
             message,
-            customerId,
-            email,
         } = req.body;
 
-        if (!serviceId || !serviceName || !eventDate || !eventLocation) {
+        if (!serviceId || !eventDate || !eventLocation) {
             throw new HttpError(
                 400,
                 "Please provide all required booking fields.",
@@ -82,24 +77,57 @@ router.post("/", verifyToken, verifyCustomer, async (req, res, next) => {
             throw new HttpError(404, "Service not found.");
         }
 
+        const customerId = req.user._id.toString();
+        const vendorId = String(service.vendorId);
+        if (vendorId === customerId) {
+            throw new HttpError(403, "You cannot book your own service.");
+        }
+
+        const parsedEventDate = new Date(eventDate);
+        if (Number.isNaN(parsedEventDate.getTime())) {
+            throw new HttpError(400, "Invalid event date.");
+        }
+        const normalizedEventDate = parsedEventDate.toISOString().slice(0, 10);
+        const activeKey = `${customerId}:${serviceId}:${normalizedEventDate}`;
+
+        const existingBooking = await bookingCollection.findOne({
+            customerId,
+            serviceId,
+            eventDate: normalizedEventDate,
+            status: { $in: ["pending", "accepted"] },
+        });
+        if (existingBooking) {
+            throw new HttpError(409, "You already have an active request for this service and event date.");
+        }
+
         const booking = {
             serviceId,
-            serviceName,
-            customerName,
-            serviceImage: serviceImage ?? "",
-            vendorId: service.vendorId ?? null,
+            serviceName: service.serviceName,
+            customerName: req.user.name,
+            serviceImage: service.images?.[0] ?? service.image ?? "",
+            vendorId,
             price: service.price ?? 0,
-            eventDate,
+            eventDate: normalizedEventDate,
             eventLocation,
             message: message || "",
             customerId,
-            email,
+            email: req.user.email,
             status: "pending",
+            activeKey,
             createdAt: new Date(),
             updatedAt: new Date(),
         };
 
-        const result = await bookingCollection.insertOne(booking);
+        let result;
+        try {
+            result = await bookingCollection.insertOne(booking);
+        } catch (error) {
+            // The unique index closes the race where two requests arrive together.
+            if (error.code === 11000) {
+                throw new HttpError(409, "You already have an active request for this service and event date.");
+            }
+            throw error;
+        }
 
         res.status(201).json({
             success: true,
@@ -116,7 +144,7 @@ router.post("/", verifyToken, verifyCustomer, async (req, res, next) => {
 
 router.patch("/:id/accept", verifyToken, async (req, res, next) => {
     try {
-        if (req.user.userRole === "customer" ) {
+        if (req.user?.userRole === "customer" ) {
             throw new HttpError(403, "Unauthorized to accept this booking.");
         }
         const { id } = req.params;
@@ -185,6 +213,7 @@ router.patch("/:id/reject", verifyToken, async (req, res, next) => {
                     respondedAt: new Date(),
                     updatedAt: new Date(),
                 },
+                $unset: { activeKey: "" },
             },
         );
 
@@ -225,6 +254,7 @@ router.patch("/:id/cancel", verifyToken, verifyCustomer, async (req, res, next) 
                     cancelReason: req.body?.cancelReason ?? "",
                     updatedAt: new Date(),
                 },
+                $unset: { activeKey: "" },
             },
         );
 
